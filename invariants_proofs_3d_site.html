@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invariants & Proofs of Correctness</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --ink:#0a0a12;
+    --acc:#7c6bff;
+    --acc2:#a78bfa;
+    --acc3:#38bdf8;
+    --gold:#fbbf24;
+    --green:#34d399;
+    --red:#f87171;
+    --white:#f0f0ff;
+    --muted:rgba(170,170,225,.68);
+    --slide-pad:clamp(1.15rem,3.5vh,2.35rem) clamp(1.35rem,4.5vw,3.5rem);
+    --space-section:clamp(.55rem,1.8vh,1.1rem);
+    --glow-violet:0 0 44px rgba(124,107,255,.42);
+    --glow-cyan:0 0 40px rgba(56,189,248,.35);
+    --glow-emerald:0 0 38px rgba(52,211,153,.38);
+    --glow-gold:0 0 32px rgba(251,191,36,.38);
+  }
+  html,body{height:100%;overflow:hidden}
+  body{background:var(--ink);color:var(--white);font-family:'Segoe UI',system-ui,sans-serif;font-weight:400;-webkit-font-smoothing:antialiased}
+
+  #canvas-bg{position:fixed;inset:0;z-index:0;pointer-events:none}
+  #canvas-bg canvas{display:block}
+
+  #progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--acc),var(--acc2),var(--acc3));z-index:50;transition:width .35s ease;box-shadow:0 0 14px rgba(124,107,255,.45)}
+  #slide-meta{position:fixed;bottom:clamp(.65rem,2.2vh,1.15rem);right:clamp(.85rem,2.8vw,1.65rem);z-index:50;font-size:clamp(.62rem,1.3vw,.72rem);letter-spacing:.22em;font-weight:500;color:var(--acc3);opacity:.5;user-select:none}
+
+  .deck-view{position:fixed;inset:0;z-index:1;perspective:1500px;perspective-origin:50% 42%}
+  #deck{
+    display:flex;flex-direction:row;width:100%;height:100%;
+    overflow-x:auto;overflow-y:hidden;scroll-behavior:smooth;
+    scroll-snap-type:x mandatory;
+    scrollbar-width:none;-ms-overflow-style:none;
+  }
+  #deck::-webkit-scrollbar{display:none}
+
+  .slide{
+    flex:0 0 100vw;width:100vw;height:100%;min-height:100%;
+    scroll-snap-align:start;scroll-snap-stop:always;
+    display:flex;align-items:center;justify-content:center;
+    padding:var(--slide-pad);
+    padding-top:max(var(--slide-pad), env(safe-area-inset-top));
+    position:relative;overflow:hidden;
+    transform-style:preserve-3d;
+    transition:transform .5s cubic-bezier(.22,1,.36,1),opacity .45s ease;
+  }
+
+  /* Open layout — no panel box; text floats on canvas */
+  .slide-content{
+    width:100%;max-width:min(920px,90vw);max-height:100%;
+    margin:0 auto;display:flex;flex-direction:column;justify-content:center;align-items:center;
+    gap:var(--space-section);
+    text-align:center;
+    overflow:hidden;
+  }
+  .slide-content.align-left{text-align:left;align-items:stretch}
+  .slide-content.align-left .slide-title,
+  .slide-content.align-left .hero-big{text-align:left}
+
+  .t-shadow{text-shadow:0 2px 22px rgba(10,10,18,.92),0 4px 50px rgba(10,10,18,.78)}
+  .slide-num{
+    font-size:clamp(.58rem,1.05vw,.68rem);letter-spacing:.28em;text-transform:uppercase;
+    font-weight:600;color:var(--acc3);opacity:.88;margin-bottom:.15rem;
+    text-shadow:0 0 28px rgba(56,189,248,.32)
+  }
+  .slide-title{
+    font-size:clamp(1.8rem,4vw,3rem);font-weight:700;line-height:1.15;text-align:center;
+    margin-bottom:.35rem;
+    background:linear-gradient(120deg,var(--white) 0%,var(--acc2) 45%,var(--acc3) 100%);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+    filter:drop-shadow(0 4px 32px rgba(10,10,18,.55))
+  }
+  .slide-sub{font-size:clamp(.78rem,1.55vw,.95rem);color:var(--muted);line-height:1.55;max-width:52ch;margin:.25rem auto 0;font-weight:400}
+  .slide-content.align-left .slide-sub{margin:0;max-width:none}
+
+  .accent-v{color:var(--acc2);font-weight:600}
+  .accent-c{color:var(--acc3);font-weight:600}
+  .accent-e{color:var(--green);font-weight:600}
+  .accent-a{color:var(--gold);font-weight:600}
+
+  /* Icons */
+  .ico{display:block;width:1.35em;height:1.35em;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+  .ico-ring{
+    display:inline-flex;align-items:center;justify-content:center;width:clamp(2.35rem,5vw,2.85rem);height:clamp(2.35rem,5vw,2.85rem);
+    border-radius:50%;margin-bottom:.15rem;
+    background:radial-gradient(circle at 35% 28%,rgba(255,255,255,.12),transparent 55%);
+  }
+  .ico-ring--v{color:var(--acc2);filter:drop-shadow(var(--glow-violet))}
+  .ico-ring--c{color:var(--acc3);filter:drop-shadow(var(--glow-cyan))}
+  .ico-ring--e{color:var(--green);filter:drop-shadow(var(--glow-emerald))}
+  .ico-ring--a{color:var(--gold);filter:drop-shadow(var(--glow-gold))}
+  .ico-ring--r{color:var(--red);filter:drop-shadow(0 0 28px rgba(248,113,113,.4))}
+
+  .points{display:flex;flex-direction:column;gap:clamp(.42rem,1.2vh,.72rem);width:100%;max-width:54ch;margin:.35rem auto 0}
+  .slide-content.align-left .points{margin:0;max-width:none}
+  .point{display:flex;align-items:flex-start;gap:.9rem;text-align:left}
+  .point .ico-ring{width:clamp(2rem,4.5vw,2.4rem);height:clamp(2rem,4.5vw,2.4rem);margin-bottom:0;flex-shrink:0}
+  .point-body{font-size:clamp(.74rem,1.45vw,.88rem);line-height:1.48;color:var(--white);font-weight:400}
+  .point-body strong{font-weight:600;color:var(--white)}
+  .point-body code{color:var(--acc3)}
+
+  .statement{
+    font-size:clamp(.8rem,1.55vw,.95rem);line-height:1.5;color:var(--white);font-weight:500;max-width:56ch;margin:.4rem auto 0
+  }
+  .statement .grad,.insight-box .grad,.ib-quote .grad{
+    background:linear-gradient(90deg,var(--acc2),var(--acc3));
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;font-weight:700
+  }
+
+  .pull-quote{
+    font-size:clamp(.82rem,1.55vw,.95rem);font-style:italic;font-weight:500;line-height:1.5;
+    color:rgba(240,240,255,.95);max-width:50ch;margin:.45rem auto 0;
+    position:relative;padding:.15rem .65rem 0
+  }
+  .pull-quote::before{content:'“';position:absolute;left:-.05em;top:-.05em;font-size:2.2em;font-family:Georgia,serif;
+    background:linear-gradient(160deg,var(--acc2),var(--acc3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;opacity:.4;line-height:1}
+
+  .divider-fade{width:min(320px,78%);height:1px;margin:.55rem auto;background:linear-gradient(90deg,transparent,rgba(124,107,255,.55),rgba(167,139,250,.65),rgba(56,189,248,.5),transparent);opacity:.9}
+
+  .cols-2{display:grid;grid-template-columns:1fr 1fr;gap:clamp(1.25rem,3.5vw,2.35rem);width:100%;max-width:58ch;margin:.4rem auto 0;align-items:start}
+  @media (max-width:700px){.cols-2{grid-template-columns:1fr;gap:1rem}}
+  .pillar{display:flex;flex-direction:column;align-items:center;gap:.5rem;text-align:center}
+  .pillar-label{font-size:clamp(.58rem,1vw,.65rem);letter-spacing:.22em;text-transform:uppercase;font-weight:700;color:var(--acc3);opacity:.92}
+  .pillar h3{font-size:clamp(.88rem,1.5vw,1.05rem);font-weight:700;color:var(--acc2);margin:0}
+  .pillar p{font-size:clamp(.7rem,1.3vw,.84rem);color:var(--muted);line-height:1.45;margin:0}
+
+  .checkline{display:flex;align-items:flex-start;gap:.65rem;font-size:clamp(.7rem,1.35vw,.84rem);line-height:1.4;margin:.22rem 0;max-width:54ch;margin-left:auto;margin-right:auto;text-align:left}
+  .checkline .mk{flex-shrink:0;margin-top:.1em}
+  .chk{color:var(--green);filter:drop-shadow(var(--glow-emerald))}
+  .bad{color:var(--red)}
+
+  .code-open{
+    font-family:'Cascadia Code','Consolas',monospace;font-size:clamp(.64rem,1.2vw,.78rem);
+    line-height:1.55;color:#d4d4f0;text-align:left;width:100%;max-width:28ch;margin:.35rem auto 0;
+    padding:.35rem 0 .35rem 1rem;border-left:3px solid transparent;border-image:linear-gradient(180deg,var(--acc),var(--acc2),var(--acc3)) 1;
+    text-shadow:0 2px 18px rgba(10,10,18,.9)
+  }
+  .code-open .kw{color:var(--acc2)}.code-open .v{color:var(--acc3)}.code-open .n{color:var(--gold)}
+
+  .steps-flow{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:clamp(.65rem,2.5vw,1.5rem);width:100%;max-width:52rem;margin-top:.25rem}
+  .step-node{flex:1;min-width:140px;max-width:200px;display:flex;flex-direction:column;align-items:center;gap:.45rem}
+  .step-node h4{margin:0;font-size:clamp(.72rem,1.35vw,.88rem);font-weight:700}
+  .step-node.s1 h4{color:var(--green)}
+  .step-node.s2 h4{color:var(--acc2)}
+  .step-node.s3 h4{color:var(--gold)}
+  .step-node p{margin:0;font-size:clamp(.65rem,1.2vw,.78rem);color:var(--muted);line-height:1.42}
+  .step-join{color:var(--acc2);opacity:.45;font-size:1.25rem;align-self:center;margin-top:1.35rem;display:none}
+  @media (min-width:640px){.step-join{display:block}}
+
+  .ol-compact{counter-reset:s;list-style:none;display:flex;flex-direction:column;gap:.4rem;margin:.35rem 0 0;padding:0;max-width:52ch;text-align:left;margin-left:auto;margin-right:auto}
+  .ol-compact li{counter-increment:s;font-size:clamp(.7rem,1.35vw,.84rem);line-height:1.42;padding-left:1.95em;position:relative;color:var(--white)}
+  .ol-compact li::before{
+    content:counter(s);position:absolute;left:0;top:.05em;font-weight:800;font-size:.78em;
+    width:1.55em;height:1.55em;display:flex;align-items:center;justify-content:center;border-radius:50%;
+    background:linear-gradient(135deg,rgba(124,107,255,.45),rgba(167,139,250,.35),rgba(56,189,248,.25));color:var(--white);box-shadow:0 0 16px rgba(124,107,255,.25)
+  }
+
+  .books-viz{display:flex;gap:clamp(.55rem,2.2vw,1.5rem);align-items:flex-end;justify-content:center;flex-wrap:wrap;margin-top:.45rem}
+  .book-group{display:flex;flex-direction:column;align-items:center;gap:.28rem}
+  .book-group-label{font-size:clamp(.52rem,.95vw,.62rem);color:var(--acc3);letter-spacing:.14em;text-transform:uppercase;font-weight:600;opacity:.85}
+  .books{display:flex;gap:4px;align-items:flex-end;height:clamp(44px,7.5vh,60px)}
+  .book{width:clamp(11px,1.9vw,13px);border-radius:2px 2px 0 0;box-shadow:0 0 14px rgba(124,107,255,.28)}
+  .book.sorted{background:linear-gradient(180deg,var(--acc2),var(--acc))}
+  .book.unsorted{background:rgba(255,255,255,.1)}
+
+  .reveal{opacity:0;transform:translateY(14px);transition:opacity .55s ease,transform .55s ease}
+  .slide.is-active .reveal{opacity:1;transform:none}
+  .slide.is-active .reveal.d1{transition-delay:.06s}
+  .slide.is-active .reveal.d2{transition-delay:.14s}
+  .slide.is-active .reveal.d3{transition-delay:.22s}
+  .slide.is-active .reveal.d4{transition-delay:.3s}
+
+  .title-slide .slide-content{gap:clamp(.65rem,2vh,1.15rem)}
+  .hero-big{
+    font-size:clamp(2.5rem,6.5vw,4.25rem);font-weight:800;line-height:1.05;text-align:center;
+    background:linear-gradient(135deg,var(--white) 0%,var(--acc2) 50%,var(--acc3) 100%);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+    filter:drop-shadow(0 6px 40px rgba(10,10,18,.58))
+  }
+  .hero-sub2{font-size:clamp(.92rem,1.95vw,1.12rem);color:var(--muted);font-weight:400;letter-spacing:.02em;line-height:1.55;margin-top:.15rem}
+
+  .hint-arrow{position:absolute;right:clamp(.75rem,3vw,1.5rem);top:50%;
+    width:clamp(8px,1.2vw,10px);height:clamp(8px,1.2vw,10px);
+    border-right:2px solid rgba(180,180,220,.22);border-bottom:2px solid rgba(180,180,220,.22);
+    transform:translateY(-50%) rotate(-45deg);opacity:.3;pointer-events:none}
+
+  /* ── Screenshot-style premium components ── */
+  .slide-content.wide{max-width:min(1040px,94vw)}
+  .glass-card{
+    background:linear-gradient(155deg,rgba(255,255,255,.07),rgba(255,255,255,.02));
+    border:1px solid rgba(255,255,255,.1);border-radius:18px;
+    backdrop-filter:blur(16px);
+    box-shadow:0 8px 32px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .glass-card--e{border-color:rgba(52,211,153,.35);box-shadow:0 8px 32px rgba(0,0,0,.35),0 0 28px rgba(52,211,153,.1),inset 0 1px 0 rgba(255,255,255,.05)}
+  .glass-card--v{border-color:rgba(167,139,250,.4);box-shadow:0 8px 32px rgba(0,0,0,.35),0 0 28px rgba(124,107,255,.12),inset 0 1px 0 rgba(255,255,255,.05)}
+  .glass-card--g{border-color:rgba(251,191,36,.38);box-shadow:0 8px 32px rgba(0,0,0,.35),0 0 26px rgba(251,191,36,.1),inset 0 1px 0 rgba(255,255,255,.05)}
+  .glass-card--c{border-color:rgba(56,189,248,.35);box-shadow:0 8px 32px rgba(0,0,0,.35),0 0 26px rgba(56,189,248,.1),inset 0 1px 0 rgba(255,255,255,.05)}
+
+  .feature-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(.65rem,2vw,1.1rem);width:100%;margin-top:.35rem}
+  @media (max-width:720px){.feature-grid{grid-template-columns:1fr}}
+  .feature-card{
+    padding:clamp(.75rem,1.8vh,1rem) clamp(.7rem,1.5vw,.95rem);text-align:left;
+    border-radius:16px;background:rgba(22,24,40,.55);border:1px solid rgba(255,255,255,.08);
+    backdrop-filter:blur(14px);
+    box-shadow:0 12px 40px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .feature-card .fc-ico{margin-bottom:.45rem;filter:drop-shadow(0 4px 12px rgba(124,107,255,.35))}
+  .feature-card h3{font-size:clamp(.78rem,1.4vw,.9rem);font-weight:700;color:var(--white);margin:0 0 .35rem;line-height:1.25}
+  .feature-card p{font-size:clamp(.68rem,1.25vw,.8rem);color:var(--muted);line-height:1.45;margin:0}
+
+  .title-split{font-size:clamp(1.8rem,4vw,3rem);font-weight:700;line-height:1.15;text-align:center;margin:0;padding:0 .5rem}
+  .title-split .ts-plain{color:var(--white);text-shadow:0 2px 24px rgba(10,10,18,.9)}
+  .title-split .ts-grad{
+    background:linear-gradient(120deg,var(--acc2) 0%,var(--acc3) 100%);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  }
+
+  .process-row{display:flex;flex-wrap:wrap;align-items:stretch;justify-content:center;gap:.35rem;width:100%;max-width:52rem;margin:.4rem auto 0}
+  .process-box{
+    flex:1;min-width:130px;max-width:190px;padding:.7rem .65rem;border-radius:16px;text-align:center;
+    background:rgba(18,20,36,.65);backdrop-filter:blur(12px);
+  }
+  .process-box h4{margin:0 0 .3rem;font-size:clamp(.72rem,1.3vw,.84rem);font-weight:700}
+  .process-box p{margin:0;font-size:clamp(.62rem,1.15vw,.74rem);line-height:1.38;opacity:.88}
+  .process-box.pb-init{border:1px solid rgba(52,211,153,.45);box-shadow:0 0 22px rgba(52,211,153,.12)}
+  .process-box.pb-init h4{color:var(--green)}
+  .process-box.pb-init p{color:rgba(180,230,210,.85)}
+  .process-box.pb-main{border:1px solid rgba(167,139,250,.5);box-shadow:0 0 22px rgba(124,107,255,.15)}
+  .process-box.pb-main h4{color:var(--acc2)}
+  .process-box.pb-main p{color:rgba(210,200,245,.82)}
+  .process-box.pb-term{border:1px solid rgba(251,191,36,.48);box-shadow:0 0 22px rgba(251,191,36,.12)}
+  .process-box.pb-term h4{color:var(--gold)}
+  .process-box.pb-term p{color:rgba(245,220,170,.85)}
+  .process-arrow{color:rgba(255,255,255,.25);font-size:1.15rem;align-self:center;padding:0 .15rem;user-select:none}
+
+  .timeline{width:100%;max-width:46ch;margin:.5rem auto 0;text-align:left}
+  .timeline-item{display:flex;gap:.85rem;position:relative;padding-bottom:1rem}
+  .timeline-item:last-child{padding-bottom:0}
+  .timeline-item:not(:last-child)::after{
+    content:'';position:absolute;left:15px;top:34px;bottom:6px;width:2px;
+    background:linear-gradient(180deg,rgba(124,107,255,.55),rgba(56,189,248,.25));
+    border-radius:1px;
+  }
+  .timeline-dot{
+    flex-shrink:0;width:32px;height:32px;border-radius:50%;
+    background:linear-gradient(135deg,var(--acc),var(--acc3));
+    box-shadow:0 0 22px rgba(124,107,255,.45),0 0 12px rgba(56,189,248,.25);
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.72rem;color:#fff;
+    z-index:1;
+  }
+  .timeline-body h4{margin:0 0 .2rem;font-size:clamp(.78rem,1.4vw,.9rem);font-weight:700;color:var(--white)}
+  .timeline-body p{margin:0;font-size:clamp(.68rem,1.25vw,.8rem);color:var(--muted);line-height:1.42}
+
+  .code-panel{
+    width:100%;max-width:36rem;margin:.4rem auto 0;padding:clamp(.75rem,1.8vh,1rem) clamp(.85rem,2vw,1.15rem);
+    border-radius:18px;background:rgba(8,10,22,.72);border:1px solid rgba(124,107,255,.22);
+    backdrop-filter:blur(16px);
+    box-shadow:0 16px 48px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.04),0 0 40px rgba(124,107,255,.06);
+    text-align:left;
+  }
+  .code-panel .code-lines{
+    font-family:'Cascadia Code','Consolas',monospace;font-size:clamp(.62rem,1.15vw,.76rem);
+    line-height:1.65;color:#d0d0ea;
+  }
+  .code-panel .kw{color:var(--acc2)}.code-panel .v{color:#a5f3fc}.code-panel .n{color:var(--gold)}
+  .code-panel .cm{font-style:italic;color:rgba(160,160,190,.65);font-size:.92em;margin-top:.5rem;display:block}
+  .code-inv{
+    margin-top:.65rem;padding:.5rem .65rem;border-radius:12px;border:1px solid rgba(167,139,250,.35);
+    background:rgba(124,107,255,.08);font-size:clamp(.68rem,1.25vw,.8rem);
+    color:var(--acc2);font-style:italic;font-weight:500;
+  }
+
+  .proof-stack{display:flex;flex-direction:column;gap:.38rem;width:100%;max-width:42rem;margin:.45rem auto 0}
+  .proof-stack.compact-dual{display:grid;grid-template-columns:1fr 1fr;gap:.4rem;max-width:48rem}
+  @media (max-width:640px){.proof-stack.compact-dual{grid-template-columns:1fr}}
+  .proof-card{
+    display:flex;gap:.85rem;align-items:flex-start;padding:.65rem .9rem;border-radius:14px;text-align:left;
+    background:rgba(20,22,38,.6);border:1px solid rgba(255,255,255,.09);
+    backdrop-filter:blur(12px);
+    box-shadow:0 8px 28px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.04);
+  }
+  .proof-card .pc-ico{
+    flex-shrink:0;width:2.35rem;height:2.35rem;border-radius:50%;
+    background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.35);
+    display:flex;align-items:center;justify-content:center;color:var(--green);
+    box-shadow:0 0 18px rgba(52,211,153,.22);
+  }
+  .proof-card--bad .pc-ico{background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.38);color:var(--red);box-shadow:0 0 18px rgba(248,113,113,.18)}
+  .proof-card--bad .pc-label{color:rgba(248,113,113,.9)}
+  .proof-stack.compact-dual .proof-card{padding:.55rem .72rem}
+  .proof-stack.compact-dual .pc-body{font-size:clamp(.68rem,1.2vw,.78rem)}
+  .pc-label{font-size:.58rem;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .pc-body{font-size:clamp(.74rem,1.35vw,.86rem);color:var(--white);font-weight:600;line-height:1.38;margin-top:.2rem}
+
+  .compare-row{display:grid;grid-template-columns:1fr 1fr;gap:clamp(.75rem,2.2vw,1.25rem);width:100%;max-width:46rem;margin:.45rem auto 0}
+  @media (max-width:640px){.compare-row{grid-template-columns:1fr}}
+  .compare-card{
+    padding:clamp(.8rem,1.8vh,1.05rem);border-radius:16px;text-align:left;
+    background:rgba(18,20,34,.58);backdrop-filter:blur(14px);
+  }
+  .compare-card--gold{border:1px solid rgba(251,191,36,.4);box-shadow:0 10px 36px rgba(0,0,0,.32),0 0 28px rgba(251,191,36,.08)}
+  .compare-card--gold .cc-tag{color:var(--gold);letter-spacing:.18em;font-size:.58rem;font-weight:700;text-transform:uppercase}
+  .compare-card--violet{border:1px solid rgba(167,139,250,.42);box-shadow:0 10px 36px rgba(0,0,0,.32),0 0 28px rgba(124,107,255,.1)}
+  .compare-card--violet .cc-tag{color:var(--acc2);letter-spacing:.18em;font-size:.58rem;font-weight:700;text-transform:uppercase}
+  .compare-card h3{margin:.4rem 0 .35rem;font-size:clamp(.85rem,1.5vw,.98rem);font-weight:700;color:var(--white)}
+  .compare-card p{margin:0;font-size:clamp(.68rem,1.25vw,.8rem);color:var(--muted);line-height:1.45}
+
+  .insight-box{
+    position:relative;width:100%;max-width:46rem;margin:.55rem auto 0;padding:clamp(.85rem,2vh,1.15rem) clamp(1rem,2.5vw,1.35rem);
+    border-radius:18px;background:rgba(16,18,32,.55);border:1px solid rgba(124,107,255,.2);
+    backdrop-filter:blur(14px);
+    box-shadow:0 12px 40px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.04);
+  }
+  .insight-box::before{
+    content:'“';position:absolute;top:.2rem;left:.75rem;font-size:3.5rem;line-height:1;font-family:Georgia,serif;
+    background:linear-gradient(180deg,rgba(167,139,250,.25),rgba(56,189,248,.12));-webkit-background-clip:text;-webkit-text-fill-color:transparent;
+    pointer-events:none;
+  }
+  .insight-box .ib-quote{position:relative;z-index:1;font-size:clamp(.8rem,1.5vw,.92rem);font-style:italic;color:var(--white);line-height:1.5;text-align:center;padding:0 .5rem}
+  .insight-box .ib-foot{margin-top:.65rem;text-align:center;font-size:.58rem;letter-spacing:.22em;text-transform:uppercase;font-weight:700;color:var(--acc3);opacity:.9}
+
+  .pillars-glass .pillar{
+    padding:clamp(.75rem,1.6vh,.95rem);border-radius:16px;background:rgba(20,22,38,.5);
+    border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(10px);
+  }
+</style>
+</head>
+<body>
+
+<div id="progress"></div>
+<div id="slide-meta" aria-hidden="true"></div>
+<canvas id="canvas-bg"></canvas>
+
+<div class="deck-view">
+  <div id="deck" tabindex="0" role="region" aria-label="Presentation slides">
+    <!-- 1 Title -->
+    <section class="slide title-slide" data-i="0">
+      <span class="hint-arrow" aria-hidden="true"></span>
+      <div class="slide-content t-shadow">
+        <div class="ico-ring ico-ring--v reveal d1" aria-hidden="true">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
+        </div>
+        <p class="slide-num reveal d1">Correctness · Theory</p>
+        <h1 class="hero-big reveal d2">Invariants &amp; Proofs of Correctness</h1>
+        <p class="hero-sub2 reveal d3">Understanding <span class="accent-c">why</span> algorithms work — not only <span class="accent-v">that</span> they appear to.</p>
+      </div>
+    </section>
+
+    <!-- 2 Introduction -->
+    <section class="slide" data-i="1">
+      <div class="slide-content wide t-shadow">
+        <p class="slide-num reveal">01 — Introduction</p>
+        <h2 class="slide-title reveal d1">From code to certainty</h2>
+        <p class="slide-sub reveal d2">Why implementation alone is never the full story.</p>
+        <div class="feature-grid reveal d2">
+          <div class="feature-card">
+            <div class="fc-ico ico-ring ico-ring--c" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+            <h3>Build &amp; justify</h3>
+            <p>Code that runs is not enough — we need a reason to trust it beyond the cases we tried.</p>
+          </div>
+          <div class="feature-card">
+            <div class="fc-ico ico-ring ico-ring--v" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></div>
+            <h3>Every valid input</h3>
+            <p>Correctness means the right output for <strong class="accent-v">all</strong> valid inputs — not a lucky sample.</p>
+          </div>
+          <div class="feature-card">
+            <div class="fc-ico ico-ring ico-ring--e" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg></div>
+            <h3>Proof of correctness</h3>
+            <p>The discipline of showing your algorithm <em>always</em> meets its specification.</p>
+          </div>
+        </div>
+        <div class="insight-box reveal d3">
+          <p class="ib-quote">An algorithm is <span class="grad">correct</span> when it always yields the right output for every valid input.</p>
+          <p class="ib-foot">Working definition</p>
+        </div>
+        <p class="statement reveal d4 t-shadow" style="color:var(--muted);margin-top:.35rem">One failing case for a sorting routine → not fully correct. No exceptions.</p>
+      </div>
+    </section>
+
+    <!-- 3 Correctness -->
+    <section class="slide" data-i="2">
+      <div class="slide-content wide t-shadow">
+        <p class="slide-num reveal">03 — Foundations</p>
+        <h2 class="slide-title reveal d1">What is correctness?</h2>
+        <p class="slide-sub reveal d2">Two obligations every serious algorithm must meet:</p>
+        <div class="feature-grid reveal d2">
+          <div class="feature-card glass-card--e">
+            <div class="fc-ico ico-ring ico-ring--e" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m7.8 7.8-2.9-2.9"/><circle cx="12" cy="12" r="3"/></svg></div>
+            <h3>Termination</h3>
+            <p>Execution finishes — no infinite loops on valid inputs.</p>
+          </div>
+          <div class="feature-card glass-card--c">
+            <div class="fc-ico ico-ring ico-ring--c" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+            <h3>Valid output</h3>
+            <p>The result satisfies the problem specification.</p>
+          </div>
+          <div class="feature-card glass-card--v" style="grid-column:1/-1">
+            <h3 style="text-align:center;margin-bottom:.45rem">Partial vs total</h3>
+            <div class="cols-2 pillars-glass" style="max-width:none;margin:0;gap:.75rem">
+              <div class="pillar">
+                <span class="ico-ring ico-ring--a" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span>
+                <span class="pillar-label">Partial</span>
+                <h3>If it stops, it’s right</h3>
+                <p>Halting implies a correct answer — but halting itself is not guaranteed.</p>
+              </div>
+              <div class="pillar">
+                <span class="ico-ring ico-ring--v" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M6 3h12l4 6-10 13L2 9Z"/><path d="M11 3 8 9l4 13 4-13-3-6"/><path d="M2 9h20"/></svg></span>
+                <span class="pillar-label">Total</span>
+                <h3>Always stops · always right</h3>
+                <p>The standard we aim for in critical systems and theory.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="insight-box reveal d3">
+          <p class="ib-quote"><strong class="accent-e">Total correctness</strong> = termination + partial correctness</p>
+          <p class="ib-foot">Formula</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 Key concepts -->
+    <section class="slide" data-i="3">
+      <div class="slide-content wide t-shadow">
+        <p class="slide-num reveal">04 — Method</p>
+        <h2 class="slide-title reveal d1">How we prove it</h2>
+        <p class="slide-sub reveal d2">Universal guarantees — not anecdotal testing.</p>
+        <div class="feature-grid reveal d2">
+          <div class="feature-card glass-card--v">
+            <div class="fc-ico ico-ring ico-ring--v" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg></div>
+            <h3>Invariants</h3>
+            <p>Truths preserved at every step — they link intermediate states to the goal.</p>
+          </div>
+          <div class="feature-card glass-card--c">
+            <div class="fc-ico ico-ring ico-ring--c" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></div>
+            <h3>Induction &amp; logic</h3>
+            <p>Structured reasoning over <em>all</em> inputs — not hand-picked examples.</p>
+          </div>
+          <div class="feature-card glass-card--e">
+            <div class="fc-ico ico-ring ico-ring--e" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg></div>
+            <h3>Proof &gt; samples</h3>
+            <p>Together they give guarantees for the <span class="accent-e">whole</span> input space.</p>
+          </div>
+        </div>
+        <div class="compare-row reveal d3">
+          <div class="compare-card compare-card--gold">
+            <div class="cc-tag">Testing</div>
+            <h3>Limited coverage</h3>
+            <p>Explores a finite set — essential in practice, never a universal proof.</p>
+          </div>
+          <div class="compare-card compare-card--violet">
+            <div class="cc-tag">Invariant proof</div>
+            <h3>Universal guarantee</h3>
+            <p>A sound argument covers every valid input at once.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 Invariant -->
+    <section class="slide" data-i="4">
+      <div class="slide-content wide t-shadow">
+        <p class="slide-num reveal">02 — Core concept</p>
+        <h2 class="title-split reveal d1"><span class="ts-plain">What is an </span><span class="ts-grad">Invariant</span><span class="ts-plain">?</span></h2>
+        <p class="slide-sub reveal d2">A condition that stays true throughout execution — your anchor for correctness.</p>
+        <div class="feature-grid reveal d2">
+          <div class="feature-card">
+            <div class="fc-ico ico-ring ico-ring--a" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="m7 11V7a5 5 0 0 1 9.9-1"/></svg></div>
+            <h3>Never drifts</h3>
+            <p>Each transition preserves the property — nothing “accidentally” invalidates it.</p>
+          </div>
+          <div class="feature-card">
+            <div class="fc-ico ico-ring ico-ring--c" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg></div>
+            <h3>Tracks truth</h3>
+            <p>You always know what remains true as the algorithm runs.</p>
+          </div>
+          <div class="feature-card">
+            <div class="fc-ico ico-ring ico-ring--e" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></div>
+            <h3>Proves goals</h3>
+            <p>Combined with termination, it bridges “each step” to the final answer.</p>
+          </div>
+        </div>
+        <div class="insight-box reveal d3">
+          <p class="ib-quote">“Invariant = something that <span class="accent-c">never breaks</span> along the real execution path.”</p>
+          <p class="ib-foot">Core definition</p>
+        </div>
+        <p class="slide-sub reveal d4">Formally: true before each step and after each step (when that step is taken).</p>
+      </div>
+    </section>
+
+    <!-- 6 Loop invariant -->
+    <section class="slide" data-i="5">
+      <div class="slide-content wide t-shadow">
+        <p class="slide-num reveal">05 — Loops</p>
+        <h2 class="slide-title reveal d1">Loop invariant</h2>
+        <p class="slide-sub reveal d2">One predicate — true at three critical moments in the loop’s life.</p>
+        <div class="process-row reveal d2">
+          <div class="process-box pb-init">
+            <h4>Before</h4>
+            <p>True before the first iteration — your induction base.</p>
+          </div>
+          <span class="process-arrow" aria-hidden="true">→</span>
+          <div class="process-box pb-main">
+            <h4>Each step</h4>
+            <p>True after every iteration — the inductive step.</p>
+          </div>
+          <span class="process-arrow" aria-hidden="true">→</span>
+          <div class="process-box pb-term">
+            <h4>On exit</h4>
+            <p>Still true when the loop stops — tie to the postcondition.</p>
+          </div>
+        </div>
+        <p class="statement reveal d3 t-shadow" style="margin-top:.45rem">The standard tool for proving <span class="grad">while</span> and <span class="grad">for</span> loops correct.</p>
+        <div class="insight-box reveal d4">
+          <p class="ib-quote">Think of it as a rule the loop <em>never</em> violates — at any iteration.</p>
+          <p class="ib-foot">Mental model</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 Three steps -->
+    <section class="slide" data-i="6">
+      <div class="slide-content wide t-shadow">
+        <p class="slide-num reveal">06 — Proof scaffold</p>
+        <h2 class="slide-title reveal d1">Three obligations</h2>
+        <p class="slide-sub reveal d2">The standard loop-invariant proof template.</p>
+        <div class="process-row reveal d2">
+          <div class="process-box pb-init">
+            <h4>Initialization</h4>
+            <p>True before the first iteration.</p>
+          </div>
+          <span class="process-arrow">→</span>
+          <div class="process-box pb-main">
+            <h4>Maintenance</h4>
+            <p>Preserved by each iteration.</p>
+          </div>
+          <span class="process-arrow">→</span>
+          <div class="process-box pb-term">
+            <h4>Termination</h4>
+            <p>Yields the final result.</p>
+          </div>
+        </div>
+        <div class="timeline reveal d3">
+          <div class="timeline-item">
+            <div class="timeline-dot">1</div>
+            <div class="timeline-body">
+              <h4>Initialization</h4>
+              <p>Show the invariant holds before the loop body runs the first time — the base of induction.</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot">2</div>
+            <div class="timeline-body">
+              <h4>Maintenance</h4>
+              <p>Assume it holds before an iteration; prove it still holds after — the inductive step.</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot">3</div>
+            <div class="timeline-body">
+              <h4>Termination</h4>
+              <p>When the loop exits, combine the invariant with the guard to prove the postcondition.</p>
+            </div>
+          </div>
+        </div>
+        <p class="statement reveal d4" style="color:var(--green);font-weight:700;margin-top:.35rem">All three → the loop (and often the whole algorithm) is correct.</p>
+      </div>
+    </section>
+
+    <!-- 8 Example -->
+    <section class="slide" data-i="7">
+      <div class="slide-content wide t-shadow">
+        <p class="slide-num reveal">07 — Example</p>
+        <h2 class="title-split reveal d1"><span class="ts-plain">Sum of </span><span class="ts-grad">1 to N</span></h2>
+        <p class="slide-sub reveal d2">A classic loop — invariant stated right in the code.</p>
+        <div class="code-panel reveal d2">
+          <div class="code-lines">
+            <span class="v">sum</span> = <span class="n">0</span><br>
+            <span class="kw">for</span> (<span class="v">i</span> = <span class="n">1</span> <span class="kw">to</span> <span class="v">n</span>)<br>
+            &nbsp;&nbsp;<span class="v">sum</span> = <span class="v">sum</span> + <span class="v">i</span>
+            <span class="cm">// Invariant at end of iteration i:</span>
+            <span class="cm">// sum = 1 + 2 + … + i</span>
+          </div>
+          <div class="code-inv">“sum = 1 + 2 + … + i” — holds after every iteration ✓</div>
+        </div>
+        <p class="slide-sub reveal d3" style="margin-top:.45rem">At each step, <code style="color:var(--acc3)">sum</code> is exactly the partial total — nothing missing, nothing extra.</p>
+      </div>
+    </section>
+
+    <!-- 9 Proof -->
+    <section class="slide" data-i="8">
+      <div class="slide-content wide t-shadow">
+        <p class="slide-num reveal">08 — Verification</p>
+        <h2 class="slide-title reveal d1">Proof of the sum loop</h2>
+        <p class="slide-sub reveal d2">The three proof obligations, checked for this example.</p>
+        <div class="proof-stack reveal d2">
+          <div class="proof-card">
+            <div class="pc-ico" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg></div>
+            <div>
+              <div class="pc-label">Initialization</div>
+              <div class="pc-body">Before the loop, <em>sum = 0</em> — the empty sum; the invariant holds trivially.</div>
+            </div>
+          </div>
+          <div class="proof-card">
+            <div class="pc-ico" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg></div>
+            <div>
+              <div class="pc-label">Maintenance</div>
+              <div class="pc-body">Each iteration adds <em>i</em> → <em>sum</em> still equals 1 + … + <em>i</em>; the predicate is preserved.</div>
+            </div>
+          </div>
+          <div class="proof-card">
+            <div class="pc-ico" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg></div>
+            <div>
+              <div class="pc-label">Termination</div>
+              <div class="pc-body">When <em>i = n</em>, we have <em>sum = 1 + … + n</em> — exactly the desired total.</div>
+            </div>
+          </div>
+        </div>
+        <div class="insight-box reveal d3">
+          <p class="ib-quote" style="font-style:normal;font-weight:700">Therefore the loop computes the correct total. ∎</p>
+          <p class="ib-foot">Q.E.D.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 Books -->
+    <section class="slide" data-i="9">
+      <div class="slide-content wide t-shadow">
+        <p class="slide-num reveal">09 — Analogy</p>
+        <h2 class="title-split reveal d1"><span class="ts-plain">Sorting </span><span class="ts-grad">Books</span></h2>
+        <p class="slide-sub reveal d2">A real-world mental model: the sorted portion always grows.</p>
+        <div class="books-viz reveal d2" id="books-viz">
+          <div class="book-group"><div class="book-group-label">Step 1</div><div class="books" id="bg0"></div></div>
+          <div class="book-group"><div class="book-group-label">Step 2</div><div class="books" id="bg1"></div></div>
+          <div class="book-group"><div class="book-group-label">Step 3</div><div class="books" id="bg2"></div></div>
+          <div class="book-group"><div class="book-group-label">Final</div><div class="books" id="bg3"></div></div>
+        </div>
+        <div class="insight-box reveal d3">
+          <p class="ib-quote" style="font-style:normal;font-size:clamp(.85rem,1.55vw,.98rem)">The books on the <strong>left</strong> are already sorted.</p>
+          <p class="slide-sub" style="margin-top:.45rem;font-size:clamp(.7rem,1.3vw,.82rem);max-width:42ch;margin-left:auto;margin-right:auto">At every step the sorted region grows — until all books are in order.</p>
+          <p class="ib-foot">The loop invariant</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 Why -->
+    <section class="slide" data-i="10">
+      <div class="slide-content wide t-shadow">
+        <p class="slide-num reveal">10 — Perspective</p>
+        <h2 class="title-split reveal d1"><span class="ts-plain">Testing vs </span><span class="ts-grad">Proving</span></h2>
+        <p class="slide-sub reveal d2">Testing checks some inputs. Proofs work for all inputs.</p>
+        <div class="compare-row reveal d2">
+          <div class="compare-card compare-card--gold">
+            <div class="cc-tag">Testing</div>
+            <h3>Limited coverage</h3>
+            <p>You can run thousands of cases and still miss the one that breaks. Testing finds bugs; it doesn’t prove absence.</p>
+          </div>
+          <div class="compare-card compare-card--violet">
+            <div class="cc-tag">Invariant proof</div>
+            <h3>Universal guarantee</h3>
+            <p>A valid proof covers <strong>every</strong> valid input — size, edge cases, and corner cases together.</p>
+          </div>
+        </div>
+        <div class="insight-box reveal d3">
+          <p class="ib-quote">Testing shows it works <em>sometimes</em>. Invariants prove it <em>always</em> works.</p>
+          <p class="ib-foot">Key insight</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 Process -->
+    <section class="slide" data-i="11">
+      <div class="slide-content wide t-shadow">
+        <p class="slide-num reveal">11 — Workflow</p>
+        <h2 class="slide-title reveal d1">Proof process</h2>
+        <p class="slide-sub reveal d2">A repeatable recipe — not guesswork.</p>
+        <div class="timeline reveal d2">
+          <div class="timeline-item">
+            <div class="timeline-dot">1</div>
+            <div class="timeline-body">
+              <h4>Specify</h4>
+              <p>State inputs, outputs, and pre/postconditions precisely.</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot">2</div>
+            <div class="timeline-body">
+              <h4>Choose invariant</h4>
+              <p>Pick a predicate that <em>implies</em> the goal when the loop stops.</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot">3</div>
+            <div class="timeline-body">
+              <h4>Prove I–M–T</h4>
+              <p>Establish initialization, maintenance, and termination.</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot">4</div>
+            <div class="timeline-body">
+              <h4>Conclude</h4>
+              <p>The algorithm satisfies its specification — systematically.</p>
+            </div>
+          </div>
+        </div>
+        <p class="statement reveal d3 t-shadow" style="margin-top:.45rem">Repeatable structure — <span class="accent-c">engineering</span>, not inspiration.</p>
+      </div>
+    </section>
+
+    <!-- 13 Mistakes -->
+    <section class="slide" data-i="12">
+      <div class="slide-content wide t-shadow">
+        <p class="slide-num reveal">12 — Pitfalls</p>
+        <h2 class="slide-title reveal d1">Common mistakes</h2>
+        <p class="slide-sub reveal d2">What breaks proofs — and how to avoid it.</p>
+        <div class="proof-stack compact-dual reveal d2">
+          <div class="proof-card proof-card--bad">
+            <div class="pc-ico" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg></div>
+            <div><div class="pc-label">Weak invariant</div><div class="pc-body">Predicate too weak to force the final result.</div></div>
+          </div>
+          <div class="proof-card proof-card--bad">
+            <div class="pc-ico" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg></div>
+            <div><div class="pc-label">Incomplete</div><div class="pc-body">Skipping any of I, M, or T — all three matter.</div></div>
+          </div>
+          <div class="proof-card proof-card--bad">
+            <div class="pc-ico" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg></div>
+            <div><div class="pc-label">Guard ≠ invariant</div><div class="pc-body">The guard stops the loop; the invariant explains correctness.</div></div>
+          </div>
+          <div class="proof-card proof-card--bad">
+            <div class="pc-ico" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg></div>
+            <div><div class="pc-label">Tests only</div><div class="pc-body">“Passed tests” is not a proof.</div></div>
+          </div>
+        </div>
+        <div class="insight-box reveal d3">
+          <p class="ib-quote" style="font-style:normal"><strong class="accent-v">Remember:</strong> the invariant must encode the <em>algorithm’s story</em>, not just restate syntax.</p>
+          <p class="ib-foot">Important</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 Conclusion -->
+    <section class="slide" data-i="13">
+      <div class="slide-content wide t-shadow">
+        <p class="slide-num reveal">13 — Closing</p>
+        <h2 class="slide-title reveal d1">Conclusion</h2>
+        <div class="feature-grid reveal d2">
+          <div class="feature-card glass-card--v">
+            <div class="fc-ico ico-ring ico-ring--v" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg></div>
+            <h3>Foundation</h3>
+            <p>Invariants are the <strong>spine</strong> of rigorous correctness for loops.</p>
+          </div>
+          <div class="feature-card glass-card--e">
+            <div class="fc-ico ico-ring ico-ring--e" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg></div>
+            <h3>Bridge</h3>
+            <p>They link <span class="accent-e">local steps</span> to a <span class="accent-e">global promise</span>.</p>
+          </div>
+          <div class="feature-card glass-card--c">
+            <div class="fc-ico ico-ring ico-ring--c" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+            <h3>Certainty</h3>
+            <p>They make reasoning <span class="accent-c">auditable</span> — and teachable.</p>
+          </div>
+        </div>
+        <div class="insight-box reveal d3">
+          <p class="ib-quote">Strong algorithms deserve <span class="accent-v">strong reasoning</span> — invariants are how you deliver both.</p>
+          <p class="ib-foot">Takeaway</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 15 Thanks -->
+    <section class="slide title-slide" data-i="14">
+      <div class="slide-content t-shadow">
+        <span class="ico-ring ico-ring--v reveal d1" aria-hidden="true" style="width:clamp(2.75rem,6vw,3.25rem);height:clamp(2.75rem,6vw,3.25rem)">
+          <svg class="ico" style="width:1.5em;height:1.5em" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/></svg>
+        </span>
+        <h2 class="hero-big reveal d2" style="font-size:clamp(1.85rem,6vw,3.1rem)">Thank you</h2>
+        <p class="hero-sub2 reveal d3">Questions welcome — pick an algorithm and we’ll hunt for its invariant.</p>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+(function(){
+  const deck = document.getElementById('deck');
+  const slides = deck.querySelectorAll('.slide');
+  const total = slides.length;
+  const progress = document.getElementById('progress');
+  const meta = document.getElementById('slide-meta');
+  let index = 0;
+  let lock = false;
+
+  function setActive(i){
+    i = Math.max(0, Math.min(total - 1, i));
+    index = i;
+    slides.forEach((s, j) => s.classList.toggle('is-active', j === i));
+    progress.style.width = ((i + 1) / total * 100) + '%';
+    if (meta) meta.textContent = (i + 1) + ' / ' + total;
+    slides.forEach((s, j) => {
+      const d = j - i;
+      const t = d === 0 ? 'scale(1) translateZ(0)' : `scale(${1 - Math.min(Math.abs(d) * 0.04, 0.12)}) translateZ(${-Math.abs(d) * 25}px) rotateY(${d * -4}deg)`;
+      s.style.transform = t;
+      s.style.opacity = Math.abs(d) > 1 ? 0.88 : 1;
+    });
+  }
+
+  function goTo(i){
+    if (lock) return;
+    const t = Math.max(0, Math.min(total - 1, i));
+    lock = true;
+    const w = deck.clientWidth;
+    deck.scrollTo({ left: t * w, behavior: 'smooth' });
+    setActive(t);
+    setTimeout(() => { lock = false; }, 480);
+  }
+
+  const io = new IntersectionObserver((entries) => {
+    let best = null, bestRatio = 0;
+    entries.forEach(en => {
+      if (en.isIntersecting && en.intersectionRatio > bestRatio) {
+        bestRatio = en.intersectionRatio;
+        best = en.target;
+      }
+    });
+    if (best && bestRatio >= 0.45 && !lock) {
+      const i = Number(best.dataset.i);
+      if (i !== index) setActive(i);
+    }
+  }, { root: deck, threshold: [0.45, 0.5, 0.55, 0.6, 0.65, 0.7] });
+  slides.forEach(s => io.observe(s));
+
+  deck.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const dy = e.deltaY;
+    const dx = e.deltaX;
+    const delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+    if (delta > 30) goTo(index + 1);
+    else if (delta < -30) goTo(index - 1);
+  }, { passive: false });
+
+  window.addEventListener('keydown', (e) => {
+    const k = e.key;
+    if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'PageDown' || k === ' ') {
+      e.preventDefault();
+      goTo(index + 1);
+    } else if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'PageUp') {
+      e.preventDefault();
+      goTo(index - 1);
+    } else if (k === 'Home') { e.preventDefault(); goTo(0); }
+    else if (k === 'End') { e.preventDefault(); goTo(total - 1); }
+  });
+
+  let tx = 0, touchActive = false;
+  deck.addEventListener('touchstart', (e) => {
+    touchActive = true;
+    tx = e.changedTouches[0].clientX;
+  }, { passive: true });
+  deck.addEventListener('touchend', (e) => {
+    if (!touchActive) return;
+    touchActive = false;
+    const dx = e.changedTouches[0].clientX - tx;
+    if (dx < -40) goTo(index + 1);
+    else if (dx > 40) goTo(index - 1);
+  }, { passive: true });
+
+  deck.focus({ preventScroll: true });
+  setActive(0);
+  window.addEventListener('resize', () => {
+    deck.scrollTo({ left: index * deck.clientWidth, behavior: 'auto' });
+  });
+
+  const bookHeights = [55,45,65,50,60];
+  function renderBooks(id, sortedCount){
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = '';
+    bookHeights.forEach((h, i) => {
+      const b = document.createElement('div');
+      b.className = 'book ' + (i < sortedCount ? 'sorted' : 'unsorted');
+      b.style.height = Math.round(h * 0.72) + 'px';
+      el.appendChild(b);
+    });
+  }
+  renderBooks('bg0',1); renderBooks('bg1',2); renderBooks('bg2',4); renderBooks('bg3',5);
+})();
+
+const canvas = document.getElementById('canvas-bg');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 0, 5);
+
+/* Tiled world: same 5 shapes repeated along X → feels horizontally infinite */
+const bgWorld = new THREE.Group();
+scene.add(bgWorld);
+
+const TILE = 13.2;
+const TILE_REPS = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
+
+const meshes = [];
+const geos = [
+  new THREE.IcosahedronGeometry(1, 0),
+  new THREE.OctahedronGeometry(0.9, 0),
+  new THREE.TetrahedronGeometry(0.85, 0),
+  new THREE.IcosahedronGeometry(0.7, 0),
+  new THREE.OctahedronGeometry(0.65, 0),
+];
+const mat = new THREE.MeshBasicMaterial({ color: 0x7c6bff, wireframe: true, transparent: true, opacity: 0.15 });
+const mat2 = new THREE.MeshBasicMaterial({ color: 0x38bdf8, wireframe: true, transparent: true, opacity: 0.1 });
+const mat3 = new THREE.MeshBasicMaterial({ color: 0xa78bfa, wireframe: true, transparent: true, opacity: 0.12 });
+const mats = [mat, mat2, mat3, mat, mat2];
+
+geos.forEach((g, i) => {
+  const bx = (Math.random() - 0.5) * 5;
+  const by = (Math.random() - 0.5) * 7;
+  const bz = (Math.random() - 0.5) * 3.2 - 1.4;
+  const rotX = (Math.random() - 0.5) * 0.008;
+  const rotY = (Math.random() - 0.5) * 0.012;
+  const floatOffset = Math.random() * Math.PI * 2;
+  TILE_REPS.forEach(rep => {
+    const m = new THREE.Mesh(g, mats[i]);
+    m.position.set(bx + rep * TILE, by, bz);
+    m.userData = { rotX, rotY, floatOffset, baseY: by };
+    bgWorld.add(m);
+    meshes.push(m);
+  });
+});
+
+function fillParticleStrip(buf, x0, x1, count, baseIndex) {
+  for (let j = 0; j < count; j++) {
+    const k = baseIndex + j;
+    buf[k * 3] = x0 + Math.random() * (x1 - x0);
+    buf[k * 3 + 1] = (Math.random() - 0.5) * 14;
+    buf[k * 3 + 2] = (Math.random() - 0.5) * 8 - 2;
+  }
+}
+
+const strips = 5;
+const perStrip = 90;
+const particleCount = strips * perStrip;
+const pPositions = new Float32Array(particleCount * 3);
+for (let s = 0; s < strips; s++) {
+  const x0 = -55 + s * 22;
+  fillParticleStrip(pPositions, x0, x0 + 20, perStrip, s * perStrip);
+}
+const pGeo = new THREE.BufferGeometry();
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
+const pMat = new THREE.PointsMaterial({ color: 0x7c6bff, size: 0.032, transparent: true, opacity: 0.48 });
+const particles = new THREE.Points(pGeo, pMat);
+bgWorld.add(particles);
+
+const shift = new Float32Array(pPositions.length);
+for (let i = 0; i < particleCount; i++) {
+  shift[i * 3] = pPositions[i * 3] + (Math.random() - 0.5) * 6;
+  shift[i * 3 + 1] = pPositions[i * 3 + 1];
+  shift[i * 3 + 2] = pPositions[i * 3 + 2] - 1.1;
+}
+const pGeo2 = new THREE.BufferGeometry();
+pGeo2.setAttribute('position', new THREE.BufferAttribute(shift, 3));
+const pMat2 = new THREE.PointsMaterial({ color: 0x38bdf8, size: 0.024, transparent: true, opacity: 0.26 });
+const particlesFar = new THREE.Points(pGeo2, pMat2);
+const farWorld = new THREE.Group();
+farWorld.add(particlesFar);
+scene.add(farWorld);
+
+/* Small nudge per slide (not a full scene jump) — syncs with deck scroll */
+const PAN_X_PER_SLIDE = 0.24;
+const PAN_Z_PER_SLIDE = 0.018;
+const YAW_PER_SLIDE = 0.0075;
+
+let bgTargetX = 0;
+let bgTargetZ = 0;
+let bgTargetYaw = 0;
+
+function syncBackgroundToDeckScroll() {
+  const deck = document.getElementById('deck');
+  if (!deck) return;
+  const w = deck.clientWidth || window.innerWidth || 1;
+  const slideIndex = deck.scrollLeft / w;
+  bgTargetX = -slideIndex * PAN_X_PER_SLIDE;
+  bgTargetZ = -slideIndex * PAN_Z_PER_SLIDE;
+  bgTargetYaw = slideIndex * YAW_PER_SLIDE;
+}
+
+syncBackgroundToDeckScroll();
+const deckEl = document.getElementById('deck');
+if (deckEl) {
+  deckEl.addEventListener('scroll', syncBackgroundToDeckScroll, { passive: true });
+}
+window.addEventListener('resize', syncBackgroundToDeckScroll);
+
+let mouseX = 0, mouseY = 0;
+window.addEventListener('mousemove', e => {
+  mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
+  mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
+});
+
+let t = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  t += 0.01;
+  meshes.forEach(m => {
+    m.rotation.x += m.userData.rotX;
+    m.rotation.y += m.userData.rotY;
+    m.position.y = m.userData.baseY + Math.sin(t + m.userData.floatOffset) * 0.28;
+  });
+  particles.rotation.y += 0.0012;
+  particlesFar.rotation.y += 0.00085;
+
+  const k = 0.09;
+  bgWorld.position.x += (bgTargetX - bgWorld.position.x) * k;
+  bgWorld.position.z += (bgTargetZ - bgWorld.position.z) * k;
+  bgWorld.rotation.y += (bgTargetYaw - bgWorld.rotation.y) * k;
+
+  /* Deeper layer moves a bit less → subtle parallax, not a second big pan */
+  const farX = bgTargetX * 0.18;
+  const farZ = bgTargetZ * 0.2;
+  farWorld.position.x += (farX - farWorld.position.x) * 0.055;
+  farWorld.position.z += (farZ - farWorld.position.z) * 0.055;
+  farWorld.rotation.y += (bgTargetYaw * 0.35 - farWorld.rotation.y) * 0.05;
+
+  const lookX = bgWorld.position.x * 0.08;
+  const lookY = bgWorld.position.z * 0.06;
+  camera.position.x += (mouseX * 0.2 - camera.position.x) * 0.045;
+  camera.position.y += (-mouseY * 0.14 - camera.position.y) * 0.045;
+  camera.lookAt(lookX, lookY, 0);
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  syncBackgroundToDeckScroll();
+});
+</script>
+</body>
+</html>
